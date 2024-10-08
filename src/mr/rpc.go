@@ -22,8 +22,33 @@ type ExampleReply struct {
 	Y int
 }
 
-// Add your RPC definitions here.
+type SendArgs struct {
+}
 
+type SendReply struct {
+	Filename    string
+	Finish_mapf bool
+	Id          int
+	NReduce     int
+}
+
+type FinishedMapArgs struct {
+	TempFileNames []string
+	Id            int
+}
+
+type FinishedMapReply struct {
+}
+
+type SendReduceArgs struct {
+}
+
+type SendReduceReply struct {
+	TaskId  int
+	FileLen int
+}
+
+// Add your RPC definitions here.
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
