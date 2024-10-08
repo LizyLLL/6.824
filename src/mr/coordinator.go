@@ -22,6 +22,7 @@ type Coordinator struct {
 	mapUnFinished []int
 	mapFinishedMu sync.Mutex
 	mapUnMu       sync.Mutex
+	timeMu        sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -39,38 +40,46 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 func (c *Coordinator) SendFileName(args *SendArgs, reply *SendReply) error {
 	c.mu.Lock()
 	//fmt.Println("handler SendFileName run")
-	if c.counter >= len(c.filenames) {
-		c.mu.Unlock()
+	count := c.counter
+	c.counter += 1
+	c.mu.Unlock()
+	if count >= len(c.filenames) {
 		c.mapUnMu.Lock()
 		for len(c.mapUnFinished) != 0 {
 			for _, v := range c.mapUnFinished {
-
+				c.timeMu.Lock()
 				if (time.Now().Sub(c.mapTimes[v]))*1000000 >= 10 {
 					reply.Filename = c.filenames[v]
 					reply.Id = v
 					c.mapTimes[v] = time.Now()
-
+					reply.NReduce = c.nReduce
+					c.timeMu.Unlock()
+					c.mapUnMu.Unlock()
+					return nil
 				}
+				c.timeMu.Unlock()
 			}
 			c.mapUnMu.Unlock()
 			time.Sleep(time.Second)
+			c.mapUnMu.Lock()
 		}
 		c.mapUnMu.Unlock()
 		reply.Finish_mapf = true
 		return nil
 	}
-	reply.Filename = c.filenames[c.counter]
-	reply.Id = c.counter
+
+	reply.Filename = c.filenames[count]
+	reply.Id = count
 	startTime := time.Now()
-	c.mapTimes[c.counter] = startTime
+	c.timeMu.Lock()
+	c.mapTimes[count] = startTime
+	c.timeMu.Unlock()
 	c.mapUnMu.Lock()
-	c.mapUnFinished = append(c.mapUnFinished, c.counter)
+	c.mapUnFinished = append(c.mapUnFinished, count)
 	c.mapUnMu.Unlock()
 	// fmt.Println(reply)
 	reply.NReduce = c.nReduce
-	c.counter += 1
 
-	c.mu.Unlock()
 	return nil
 }
 

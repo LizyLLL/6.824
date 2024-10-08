@@ -47,8 +47,8 @@ func Worker(mapf func(string, string) []KeyValue,
 		if mapResolved == true {
 			break
 		}
-		fmt.Println("make tempfile")
-		fmt.Println(filename)
+		// fmt.Println("make tempfile")
+		// fmt.Println(filename)
 		file, err := os.Open(filename)
 
 		if err != nil {
