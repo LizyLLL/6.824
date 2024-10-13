@@ -44,8 +44,17 @@ type SendReduceArgs struct {
 }
 
 type SendReduceReply struct {
-	TaskId  int
-	FileLen int
+	TaskId   int
+	FileLen  int
+	Finished bool
+}
+
+type FinishedReduceArgs struct {
+	Id       int
+	FileName string
+}
+
+type FinishedReduceReply struct {
 }
 
 // Add your RPC definitions here.

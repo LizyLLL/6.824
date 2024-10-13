@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sort"
 )
 import "log"
 import "net/rpc"
@@ -17,6 +18,12 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+type ByKey []KeyValue
+
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -94,10 +101,61 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	}
 
-	/*for {
+	for {
 		reply := CallSendReduceTask()
+		if reply.Finished == true {
+			return
+		}
+		kva := make([]KeyValue, 0)
+		for i := 0; i < reply.FileLen; i++ {
+			intermediateFileName := fmt.Sprintf("mr-%v-%v", i, reply.TaskId)
+			file, err := os.Open(intermediateFileName)
+			if err != nil {
+				log.Fatalf("cannot open %v", intermediateFileName)
+			}
 
-	}*/
+			dec := json.NewDecoder(file)
+			for {
+				var kv KeyValue
+				if err := dec.Decode(&kv); err != nil {
+					break
+				}
+				kva = append(kva, kv)
+			}
+		}
+
+		sort.Sort(ByKey(kva))
+
+		oname := fmt.Sprintf("mr-%v", reply.TaskId)
+		ofile, err := os.Create(oname)
+		if err != nil {
+			log.Fatalf("cannot create %v", oname)
+		}
+
+		i := 0
+		for i < len(kva) {
+			j := i + 1
+			for j < len(kva) && kva[j].Key == kva[i].Key {
+				j++
+			}
+
+			values := []string{}
+			for k := i; k < j; k++ {
+				values = append(values, kva[k].Value)
+			}
+
+			output := reducef(kva[i].Key, values)
+			fmt.Fprintf(ofile, "%v %v\n", kva[i].Key, output)
+
+			i = j
+		}
+		// fmt.Println(reply.TaskId)
+		err = ofile.Close()
+		if err != nil {
+			log.Fatalf("cannot close %v", oname)
+		}
+		CallFinishedReduce(oname, reply.TaskId)
+	}
 }
 
 //
@@ -127,7 +185,7 @@ func CallSendFileName() SendReply {
 	args := SendArgs{}
 
 	reply := SendReply{}
-	reply.NReduce = 100
+
 	call("Coordinator.SendFileName", &args, &reply)
 	// fmt.Println(reply.Filename)
 	return reply
@@ -146,6 +204,12 @@ func CallFinishedMap(tempFileNames []string, id int) {
 	args := FinishedMapArgs{tempFileNames, id}
 	reply := FinishedMapReply{}
 	call("Coordinator.FinishedMap", &args, &reply)
+}
+
+func CallFinishedReduce(tempFileName string, id int) {
+	args := FinishedReduceArgs{id, tempFileName}
+	reply := FinishedReduceReply{}
+	call("Coordinator.FinishedReduce", &args, &reply)
 }
 
 //

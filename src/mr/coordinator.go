@@ -13,8 +13,9 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-	filenames     []string
-	nReduce       int
+	filenames []string
+	nReduce   int
+	// for map
 	counter       int
 	mu            sync.Mutex
 	mapTimes      []time.Time
@@ -23,6 +24,19 @@ type Coordinator struct {
 	mapFinishedMu sync.Mutex
 	mapUnMu       sync.Mutex
 	timeMu        sync.Mutex
+
+	// for reduce
+	reduceMu         sync.Mutex
+	reduceCount      int
+	reduceTimes      []time.Time
+	reduceFinished   []bool
+	reduceUnFinished []int
+	reduceFinishedMu sync.Mutex
+	reduceUnMu       sync.Mutex
+	reduceTimeMu     sync.Mutex
+
+	stop   bool
+	stopMu sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -48,7 +62,9 @@ func (c *Coordinator) SendFileName(args *SendArgs, reply *SendReply) error {
 		for len(c.mapUnFinished) != 0 {
 			for _, v := range c.mapUnFinished {
 				c.timeMu.Lock()
-				if (time.Now().Sub(c.mapTimes[v]))*1000000 >= 10 {
+				timeDifference := time.Now().Sub(c.mapTimes[v])
+				timeDifferenceInMs := timeDifference.Milliseconds()
+				if timeDifferenceInMs >= 10000 {
 					reply.Filename = c.filenames[v]
 					reply.Id = v
 					c.mapTimes[v] = time.Now()
@@ -121,6 +137,93 @@ func (c *Coordinator) FinishedMap(args *FinishedMapArgs, reply *FinishedMapReply
 	return nil
 }
 
+func (c *Coordinator) SendReduceTask(args *SendReduceArgs, reply *SendReduceReply) error {
+	c.reduceMu.Lock()
+	count := c.reduceCount
+	c.reduceCount++
+	c.reduceMu.Unlock()
+	if count >= c.nReduce {
+		c.reduceUnMu.Lock()
+		for len(c.reduceUnFinished) != 0 {
+			// fmt.Println("wait for finish", len(c.reduceUnFinished))
+			for _, v := range c.reduceUnFinished {
+				// fmt.Println("unfinished task", v)
+				c.reduceTimeMu.Lock()
+				// fmt.Println("time", time.Now().Sub(c.reduceTimes[v]))
+				timeDifference := time.Now().Sub(c.reduceTimes[v])
+				timeDifferenceInMs := timeDifference.Milliseconds()
+				if timeDifferenceInMs >= 10000 {
+					reply.TaskId = v
+					reply.FileLen = len(c.filenames)
+					c.reduceTimes[v] = time.Now()
+					c.reduceTimeMu.Unlock()
+					c.reduceUnMu.Unlock()
+					return nil
+				}
+				c.reduceTimeMu.Unlock()
+			}
+
+			c.reduceUnMu.Unlock()
+
+			time.Sleep(time.Second)
+			c.reduceUnMu.Lock()
+		}
+		c.reduceUnMu.Unlock()
+		reply.Finished = true
+		// fmt.Println("finished", len(c.reduceUnFinished))
+		c.stopMu.Lock()
+		c.stop = true
+		c.stopMu.Unlock()
+		return nil
+	}
+
+	reply.TaskId = count
+	reply.FileLen = len(c.filenames)
+
+	c.reduceUnMu.Lock()
+	c.reduceUnFinished = append(c.reduceUnFinished, count)
+	c.reduceUnMu.Unlock()
+
+	c.reduceTimeMu.Lock()
+	c.reduceTimes[count] = time.Now()
+	c.reduceTimeMu.Unlock()
+
+	return nil
+}
+
+func (c *Coordinator) FinishedReduce(args *FinishedReduceArgs, reply *FinishedReduceReply) error {
+	c.reduceFinishedMu.Lock()
+	// fmt.Println(args.Id)
+	if c.reduceFinished[args.Id] == true {
+		err := os.Remove(args.FileName)
+		if err != nil {
+			log.Fatalf("Error removing file %v: %v", args.FileName, err)
+		}
+		c.reduceFinishedMu.Unlock()
+		return nil
+	}
+
+	c.reduceFinished[args.Id] = true
+	c.reduceFinishedMu.Unlock()
+
+	newFileName := fmt.Sprintf("mr-out-%v", args.Id)
+	err := os.Rename(args.FileName, newFileName)
+	if err != nil {
+		log.Fatalf("Error renaming file %v: %v", newFileName, err)
+	}
+	c.reduceUnMu.Lock()
+	j := 0
+	for _, v := range c.reduceUnFinished {
+		if v != args.Id {
+			c.reduceUnFinished[j] = v
+			j++
+		}
+	}
+	c.reduceUnFinished = c.reduceUnFinished[:j]
+	c.reduceUnMu.Unlock()
+	return nil
+}
+
 //
 // start a thread that listens for RPCs from worker.go
 //
@@ -145,6 +248,9 @@ func (c *Coordinator) Done() bool {
 	ret := false
 
 	// Your code here.
+	c.stopMu.Lock()
+	ret = c.stop
+	c.stopMu.Unlock()
 
 	return ret
 }
@@ -162,6 +268,12 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.mapTimes = make([]time.Time, len(files))
 	c.mapFinished = make([]bool, len(files))
 	c.mapUnFinished = make([]int, 0, len(files))
+
+	c.reduceFinished = make([]bool, nReduce)
+	c.reduceUnFinished = make([]int, 0, nReduce)
+	c.reduceTimes = make([]time.Time, nReduce)
+	c.reduceCount = 0
+
 	// Your code here
 	c.server()
 	return &c
