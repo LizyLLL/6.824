@@ -287,11 +287,28 @@ func (rf *Raft) ticker() {
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}
+
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
+
+	rf.currentTerm = 0
+	rf.votedFor = -1
+	rf.log = make([]byte, 1024)
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+
+	// we didn't consider the change of the cluster member, so the service
+	// make at same time to get all the raft server
+	rf.lastContact = time.Now()
+	rf.leaderId = -1
+	rf.status = Follower
+
+	// nextIndex and matchIndex should be maked when it is leader
+	// rf.nextIndex = make([]int, len(peers))
+	// rf.matchIndex = make([]int, len(peers))
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
