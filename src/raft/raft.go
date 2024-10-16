@@ -73,7 +73,9 @@ type Raft struct {
 	// state a Raft server must maintain.
 	currentTerm int
 	votedFor    int
-	log         []byte
+
+	log     []byte
+	logTerm []int
 
 	commitIndex int
 	lastApplied int
@@ -84,6 +86,10 @@ type Raft struct {
 	lastContact time.Time
 	leaderId    int
 	status      Status
+
+	countVote int
+
+	isFollower chan bool
 }
 
 // return currentTerm and whether this server
@@ -96,7 +102,7 @@ func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	term = rf.currentTerm
-	isleader = rf.leaderId == rf.me
+	isleader = rf.status == Leader
 	return term, isleader
 }
 
@@ -164,7 +170,10 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
-
+	term         int
+	candidateId  int
+	lastLogIndex int
+	lastLogTerm  int
 }
 
 //
@@ -173,6 +182,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
+	term        int
+	voteGranted bool
 }
 
 //
@@ -261,14 +272,94 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+func (rf *Raft) HandelVote(server int, args *RequestVoteArgs) {
+	reply := &RequestVoteReply{}
+
+	ok := rf.sendRequestVote(server, args, reply)
+
+	if !ok {
+
+		return
+	}
+
+	rf.mu.Lock()
+
+	if reply.term > rf.currentTerm {
+		rf.currentTerm = reply.term
+		rf.status = Follower
+		rf.votedFor = -1
+		rf.lastContact = time.Now()
+		rf.countVote = 0
+		rf.mu.Unlock()
+		return
+	}
+
+	if reply.term < rf.currentTerm {
+
+	}
+
+	if reply.voteGranted == true && rf.status == Candidate {
+
+		rf.countVote += 1
+
+		if rf.countVote > len(rf.peers)/2 {
+			rf.status = Leader
+			rf.nextIndex = make([]int, len(rf.peers))
+			rf.matchIndex = make([]int, len(rf.peers))
+			for i := 0; i < len(rf.peers); i++ {
+				rf.nextIndex[i] = len(rf.log)
+			}
+		}
+
+	}
+	rf.mu.Unlock()
+
+}
+
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
+// It didn't need to serve for judge receive most vote or receive heartbeats
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
 
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
+		if rf.status == Leader {
+			<-rf.isFollower
+		}
+
+		currentTime := time.Now()
+
+		rf.mu.Lock()
+		timeDifference := currentTime.Sub(rf.lastContact)
+		rf.mu.Unlock()
+
+		timeDifferenceInMs := timeDifference.Milliseconds()
+
+		// handel election timeout we set election timeout to 1s
+		// we handel over we can wait 100ms to wait for other heartbeats,or vote
+		if timeDifferenceInMs >= 1000 {
+			rf.mu.Lock()
+			rf.status = Candidate
+			rf.lastContact = time.Now()
+			rf.currentTerm += 1
+			rf.votedFor = rf.me
+			rf.countVote = 1
+			term := rf.currentTerm
+			candidateId := rf.me
+			lastLogIndex := len(rf.log) - 1
+			lastLogTerm := rf.logTerm[lastLogIndex]
+			rf.mu.Unlock()
+
+			args := RequestVoteArgs{term, candidateId, lastLogIndex, lastLogTerm}
+			for i := 0; i < len(rf.peers); i++ {
+				go rf.HandelVote(i, &args)
+			}
+
+		}
+
+		time.Sleep(time.Millisecond * 100)
 
 	}
 }
@@ -296,9 +387,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.log = make([]byte, 1024)
+	rf.log = make([]byte, 0, 1024)
+	rf.logTerm = make([]int, 0, 128)
 	rf.commitIndex = 0
 	rf.lastApplied = 0
+	rf.countVote = 0
 
 	// we didn't consider the change of the cluster member, so the service
 	// make at same time to get all the raft server
