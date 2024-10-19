@@ -375,13 +375,19 @@ func (cfg *config) checkOneLeader() int {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 
 		leaders := make(map[int][]int)
+
 		for i := 0; i < cfg.n; i++ {
+			// fmt.Println("outer loop", iters, i, cfg.connected[i])
 			if cfg.connected[i] {
-				if term, leader := cfg.rafts[i].GetState(); leader {
+				// fmt.Println("wait for leader", iters, i, cfg.connected[i])
+				term, leader := cfg.rafts[i].GetState()
+				// fmt.Println("not wait for leader", iters, i, cfg.connected[i])
+				if leader {
 					leaders[term] = append(leaders[term], i)
 				}
 			}
 		}
+		// fmt.Println("get out of the loop")
 
 		lastTermWithLeader := -1
 		for term, leaders := range leaders {

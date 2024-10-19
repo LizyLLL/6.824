@@ -18,7 +18,6 @@ package raft
 //
 
 import (
-	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -109,9 +108,11 @@ func (rf *Raft) GetState() (int, bool) {
 	var isleader bool
 	// Your code here (2A).
 	rf.mu.Lock()
+	// fmt.Println("GetState", term, isleader)
 	defer rf.mu.Unlock()
 	term = rf.currentTerm
 	isleader = rf.status == Leader
+
 	return term, isleader
 }
 
@@ -294,7 +295,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	fmt.Println("get the requestvote", rf.me, args.CandidateId, rf.votedFor)
+	// fmt.Println("get the requestvote", rf.me, args.CandidateId, rf.votedFor)
 	if rf.killed() == true {
 		return
 	}
@@ -436,12 +437,15 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) HandelAppend(server int, args AppendEntriesArgs) {
 	initialCommitIndex := args.PrevLogIndex + 1
+
 	for rf.killed() == false {
 		reply := &AppendEntriesReply{}
+		// fmt.Println("append", server, rf.me)
 		ok := rf.SendAppendEntries(server, &args, reply)
-
+		// fmt.Println("finish append", server, rf.me)
 		rf.mu.Lock()
 		if !ok || rf.killed() == true {
+			rf.mu.Unlock()
 			return
 		}
 
@@ -477,6 +481,7 @@ func (rf *Raft) HandelAppend(server int, args AppendEntriesArgs) {
 		}
 
 		if len(args.Entries) == 0 {
+			// fmt.Println("handel heartbeats correctly")
 			if reply.Success == true {
 				rf.matchIndex[server] = args.PrevLogIndex
 				rf.nextIndex[server] = args.PrevLogIndex + 1
@@ -484,6 +489,7 @@ func (rf *Raft) HandelAppend(server int, args AppendEntriesArgs) {
 			rf.mu.Unlock()
 			return
 		}
+		// fmt.Println("handel heartbeats correctly")
 
 		if reply.Success == true {
 			rf.matchIndex[server] = initialCommitIndex
@@ -511,6 +517,7 @@ func (rf *Raft) HandelAppend(server int, args AppendEntriesArgs) {
 		}
 		rf.mu.Unlock()
 
+		time.Sleep(time.Millisecond * 50)
 	}
 
 }
@@ -522,7 +529,7 @@ func (rf *Raft) HandelVote(server int, args *RequestVoteArgs) {
 	}
 
 	ok := rf.sendRequestVote(server, args, reply)
-	fmt.Println("HandelVote", server, args.CandidateId, reply.Term, reply.VoteGranted)
+	// fmt.Println("HandelVote", server, args.CandidateId, reply.Term, reply.VoteGranted)
 	if !ok || rf.killed() == true {
 
 		return
@@ -583,10 +590,10 @@ func (rf *Raft) HandelVote(server int, args *RequestVoteArgs) {
 
 func (rf *Raft) LeaderTicker() {
 	for rf.killed() == false {
-		fmt.Println("Leaderticker", rf.me)
+		// fmt.Println("Leaderticker", rf.me)
 		rf.mu.Lock()
 		if rf.status != Leader {
-			fmt.Println("ExitLeader", rf.me)
+			// fmt.Println("ExitLeader", rf.me)
 			rf.mu.Unlock()
 			return
 		}
@@ -627,9 +634,9 @@ func (rf *Raft) ticker() {
 		rf.mu.Lock()
 		if rf.status == Leader {
 			rf.mu.Unlock()
-			fmt.Println("wait for not Leader", rf.me)
+			// fmt.Println("wait for not Leader", rf.me)
 			<-rf.isFollower
-			fmt.Println("not Leader", rf.me)
+			// fmt.Println("not Leader", rf.me)
 			rf.mu.Lock()
 			rf.electionTimer = 1000 + int64(rand.Intn(500))
 		}
@@ -657,7 +664,7 @@ func (rf *Raft) ticker() {
 			if lastLogIndex >= 0 {
 				lastLogTerm = rf.logTerm[lastLogIndex]
 			}
-			fmt.Println("electiontimeout", rf.me, rf.currentTerm)
+			// fmt.Println("electiontimeout", rf.me, rf.currentTerm)
 			args := RequestVoteArgs{term, candidateId, lastLogIndex, lastLogTerm}
 			for i := 0; i < len(rf.peers); i++ {
 				if i == rf.me {
