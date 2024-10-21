@@ -410,6 +410,15 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	isLeader = rf.status == Leader
+	index = len(rf.log)
+	term = rf.currentTerm
+
+	rf.log = append(rf.log, command)
+	rf.logTerm = append(rf.logTerm, term)
 
 	return index, term, isLeader
 }
@@ -436,7 +445,6 @@ func (rf *Raft) killed() bool {
 }
 
 func (rf *Raft) HandelAppend(server int, args AppendEntriesArgs) {
-	initialCommitIndex := args.PrevLogIndex + 1
 
 	for rf.killed() == false {
 		reply := &AppendEntriesReply{}
@@ -484,20 +492,17 @@ func (rf *Raft) HandelAppend(server int, args AppendEntriesArgs) {
 			// fmt.Println("handel heartbeats correctly")
 			if reply.Success == true {
 				rf.matchIndex[server] = args.PrevLogIndex
-				rf.nextIndex[server] = args.PrevLogIndex + 1
+				rf.nextIndex[server] = len(rf.log)
 			}
 			rf.mu.Unlock()
 			return
 		}
+
 		// fmt.Println("handel heartbeats correctly")
 
 		if reply.Success == true {
-			rf.matchIndex[server] = initialCommitIndex
-			rf.nextIndex[server] = len(rf.log)
-			rf.appendCount[initialCommitIndex]++
-			if rf.appendCount[initialCommitIndex] > len(rf.peers)/2 {
-				rf.commitIndex = initialCommitIndex
-			}
+			// rf.matchIndex[server] =
+			// rf.nextIndex[server] = len(rf.log)
 			rf.mu.Unlock()
 			return
 		} else {
@@ -573,7 +578,7 @@ func (rf *Raft) HandelVote(server int, args *RequestVoteArgs) {
 
 			// fmt.Println("Candidate Success", rf.me)
 			rf.status = Leader
-			rf.votedFor = -1
+			// rf.votedFor = -1
 			// rf.appendCount = 0
 			rf.nextIndex = make([]int, len(rf.peers))
 			rf.matchIndex = make([]int, len(rf.peers))
