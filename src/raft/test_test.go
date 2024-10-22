@@ -27,6 +27,7 @@ func TestInitialElection2A(t *testing.T) {
 	cfg.begin("Test (2A): initial election")
 
 	// is a leader elected?
+	// fmt.Println("here")
 	cfg.checkOneLeader()
 
 	// sleep a bit to avoid racing with followers learning of the
@@ -130,11 +131,13 @@ func TestBasicAgree2B(t *testing.T) {
 	iters := 3
 	for index := 1; index < iters+1; index++ {
 		nd, _ := cfg.nCommitted(index)
+
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
-
+		fmt.Println(nd)
 		xindex := cfg.one(index*100, servers, false)
+
 		if xindex != index {
 			t.Fatalf("got index %v but expected %v", xindex, index)
 		}
@@ -198,7 +201,7 @@ func TestFailAgree2B(t *testing.T) {
 	time.Sleep(RaftElectionTimeout)
 	cfg.one(104, servers-1, false)
 	cfg.one(105, servers-1, false)
-
+	// fmt.Println("run here")
 	// re-connect
 	cfg.connect((leader + 1) % servers)
 

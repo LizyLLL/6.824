@@ -383,6 +383,7 @@ func (cfg *config) checkOneLeader() int {
 				term, leader := cfg.rafts[i].GetState()
 				// fmt.Println("not wait for leader", iters, i, cfg.connected[i])
 				if leader {
+
 					leaders[term] = append(leaders[term], i)
 				}
 			}
@@ -391,6 +392,7 @@ func (cfg *config) checkOneLeader() int {
 
 		lastTermWithLeader := -1
 		for term, leaders := range leaders {
+
 			if len(leaders) > 1 {
 				cfg.t.Fatalf("term %d has %d (>1) leaders", term, len(leaders))
 			}
@@ -398,7 +400,7 @@ func (cfg *config) checkOneLeader() int {
 				lastTermWithLeader = term
 			}
 		}
-
+		// fmt.Println("run")
 		if len(leaders) != 0 {
 			return leaders[lastTermWithLeader][0]
 		}
