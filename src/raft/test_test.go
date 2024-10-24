@@ -135,7 +135,7 @@ func TestBasicAgree2B(t *testing.T) {
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
-		fmt.Println(nd)
+		// fmt.Println(nd)
 		xindex := cfg.one(index*100, servers, false)
 
 		if xindex != index {
@@ -600,6 +600,7 @@ func TestPersist12C(t *testing.T) {
 	for i := 0; i < servers; i++ {
 		cfg.start1(i, cfg.applier)
 	}
+
 	for i := 0; i < servers; i++ {
 		cfg.disconnect(i)
 		cfg.connect(i)

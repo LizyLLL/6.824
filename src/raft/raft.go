@@ -18,6 +18,8 @@ package raft
 //
 
 import (
+	"6.824/labgob"
+	"bytes"
 	"log"
 	"math/rand"
 	"sync"
@@ -153,6 +155,14 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+	bf := new(bytes.Buffer)
+	e := labgob.NewEncoder(bf)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+	e.Encode(rf.logTerm)
+	data := bf.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -175,6 +185,23 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var votedFor int
+	var Log []interface{}
+	var logTerm []int
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil ||
+		d.Decode(&Log) != nil || d.Decode(&logTerm) != nil {
+		log.Fatal("decode error")
+	} else {
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+		rf.log = Log
+		rf.logTerm = logTerm
+	}
 }
 
 //
@@ -234,8 +261,10 @@ type AppendEntriesArgs struct {
 }
 
 type AppendEntriesReply struct {
-	Term    int
-	Success bool
+	Term             int
+	Success          bool
+	ConflictLogIndex int
+	ConflictLogTerm  int
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -267,6 +296,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.votedFor = -1
 
 		rf.countVote = 0
+		rf.persist()
 	}
 
 	// may be a candidate in same term
@@ -275,6 +305,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.status = Follower
 		rf.votedFor = -1
 		rf.countVote = 0
+		rf.persist()
 	}
 
 	if args.PrevLogIndex > len(rf.log)-1 {
@@ -284,6 +315,18 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		reply.Success = false
 		reply.Term = rf.currentTerm
+		if len(args.Entries) == 0 {
+			return
+		}
+
+		reply.ConflictLogIndex = len(rf.log) - 1
+		reply.ConflictLogTerm = rf.logTerm[reply.ConflictLogIndex]
+
+		for reply.ConflictLogTerm > args.PrevLogTerm {
+			reply.ConflictLogIndex--
+			reply.ConflictLogTerm = rf.logTerm[reply.ConflictLogIndex]
+		}
+
 		return
 	}
 
@@ -291,8 +334,20 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// fmt.Println("appendEntries", rf.me, 2)
 		reply.Success = false
 		reply.Term = rf.currentTerm
+		if len(args.Entries) == 0 {
+			return
+		}
+
+		reply.ConflictLogIndex = args.PrevLogIndex
+		reply.ConflictLogTerm = rf.logTerm[reply.ConflictLogIndex]
+
+		for reply.ConflictLogTerm > args.PrevLogTerm {
+			reply.ConflictLogIndex--
+			reply.ConflictLogTerm = rf.logTerm[reply.ConflictLogIndex]
+		}
 		return
 	}
+
 	// fmt.Println("appendEntries", rf.me, 3)
 	reply.Success = true
 	reply.Term = rf.currentTerm
@@ -311,7 +366,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 	rf.log = rf.log[0 : args.PrevLogIndex+j]
 	rf.logTerm = rf.logTerm[0 : args.PrevLogIndex+j]
-
+	rf.persist()
 	rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
 	return
 
@@ -348,7 +403,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = -1
 
 		rf.countVote = 0
-
+		rf.persist()
 	}
 
 	reply.Term = rf.currentTerm
@@ -369,10 +424,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = true
 		rf.lastContact = time.Now()
 		rf.votedFor = args.CandidateId
+		rf.persist()
 	} else if lastLogTerm == args.LastLogTerm && args.LastLogIndex >= lastLogIndex {
 		reply.VoteGranted = true
 		rf.lastContact = time.Now()
 		rf.votedFor = args.CandidateId
+		rf.persist()
 	} else {
 		reply.VoteGranted = false
 	}
@@ -454,6 +511,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		args.PrevLogTerm = rf.logTerm[args.PrevLogIndex]
 		args.Entries = append(args.Entries, command)
 		args.TermEntries = append(args.TermEntries, term)
+		rf.persist()
 		for i := 0; i < len(rf.peers); i++ {
 			if i == rf.me {
 				continue
@@ -533,7 +591,7 @@ func (rf *Raft) killed() bool {
 // Leader create a handelappend goroutine for each server,
 // when there is nothing to append you can heartbeats(10 times
 // per second).
-func (rf *Raft) HandelAppend(server int) {
+func (rf *Raft) HandelAppend(server int, term int) {
 	// fmt.Println("handelappend", rf.me, server, rf.GetStatus())
 	for rf.killed() == false && rf.GetStatus() == Leader {
 
@@ -541,10 +599,16 @@ func (rf *Raft) HandelAppend(server int) {
 		// fmt.Println("wait", rf.me, server)
 		args := <-rf.appendChan[server]
 		rf.mu.Lock()
-		if rf.status != Leader || args.Term != rf.currentTerm {
+		if args.Term != rf.currentTerm {
 			rf.mu.Unlock()
 			continue
 		}
+
+		if rf.status != Leader || term < rf.currentTerm {
+			rf.mu.Unlock()
+			return
+		}
+
 		rf.mu.Unlock()
 		// initial := args.PrevLogIndex
 		// initialEntry := args.Entries
@@ -566,6 +630,11 @@ func (rf *Raft) HandelAppend(server int) {
 				break
 			}
 
+			if term < rf.currentTerm {
+				rf.mu.Unlock()
+				return
+			}
+
 			if reply.Term > rf.currentTerm {
 
 				rf.currentTerm = reply.Term
@@ -583,6 +652,7 @@ func (rf *Raft) HandelAppend(server int) {
 				rf.votedFor = -1
 
 				rf.countVote = 0
+				rf.persist()
 				rf.mu.Unlock()
 				return
 			}
@@ -617,15 +687,28 @@ func (rf *Raft) HandelAppend(server int) {
 				break
 			}
 
-			rf.nextIndex[server]--
+			for i := args.PrevLogIndex; i > reply.ConflictLogIndex; i-- {
+				args.Entries = append(args.Entries, rf.log[i])
+				args.TermEntries = append(args.TermEntries, rf.logTerm[i])
+			}
+
+			args.PrevLogIndex = reply.ConflictLogIndex
+
+			for rf.logTerm[args.PrevLogIndex] > reply.ConflictLogTerm {
+				args.Entries = append(args.Entries, rf.log[args.PrevLogIndex])
+				args.TermEntries = append(args.TermEntries, rf.logTerm[args.PrevLogIndex])
+				args.PrevLogIndex--
+			}
+			args.PrevLogTerm = rf.logTerm[args.PrevLogIndex]
+			rf.nextIndex[server] = args.PrevLogIndex + 1
+
 			if rf.nextIndex[server] <= 0 {
 
 				log.Fatal("nextIndex <= 0")
 			}
-			args.PrevLogIndex = rf.nextIndex[server] - 1
-			args.PrevLogTerm = rf.logTerm[args.PrevLogIndex]
-			args.Entries = append(args.Entries, rf.log[rf.nextIndex[server]])
-			args.TermEntries = append(args.TermEntries, rf.logTerm[rf.nextIndex[server]])
+			args.LeaderCommit = rf.commitIndex
+
+			// args.TermEntries = append(args.TermEntries, rf.logTerm[rf.nextIndex[server]])
 			// rf.mu.Unlock()
 
 			// time.Sleep(time.Millisecond * 50)
@@ -664,6 +747,7 @@ func (rf *Raft) HandelVote(server int, args *RequestVoteArgs) {
 		rf.votedFor = -1
 
 		rf.countVote = 0
+		rf.persist()
 		rf.electionTimer = 1000 + int64(rand.Intn(500))
 
 		return
@@ -702,7 +786,7 @@ func (rf *Raft) HandelVote(server int, args *RequestVoteArgs) {
 				if i == rf.me {
 					continue
 				}
-				go rf.HandelAppend(i)
+				go rf.HandelAppend(i, rf.currentTerm)
 			}
 			go rf.LeaderTicker()
 
@@ -777,6 +861,7 @@ func (rf *Raft) ticker() {
 			rf.lastContact = time.Now()
 			rf.currentTerm += 1
 			rf.votedFor = rf.me
+			rf.persist()
 			rf.countVote = 1
 			rf.electionTimer = 1000 + int64(rand.Intn(500))
 			term := rf.currentTerm
