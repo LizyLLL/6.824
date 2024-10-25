@@ -652,6 +652,7 @@ func TestPersist22C(t *testing.T) {
 		cfg.disconnect((leader1 + 2) % servers)
 
 		cfg.one(10+index, servers-2, true)
+
 		index++
 
 		cfg.disconnect((leader1 + 0) % servers)
@@ -669,6 +670,7 @@ func TestPersist22C(t *testing.T) {
 		cfg.connect((leader1 + 3) % servers)
 
 		cfg.one(10+index, servers-2, true)
+		fmt.Println("OK")
 		index++
 
 		cfg.connect((leader1 + 4) % servers)

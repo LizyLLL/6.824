@@ -315,9 +315,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		reply.Success = false
 		reply.Term = rf.currentTerm
-		if len(args.Entries) == 0 {
-			return
-		}
 
 		reply.ConflictLogIndex = len(rf.log) - 1
 		reply.ConflictLogTerm = rf.logTerm[reply.ConflictLogIndex]
@@ -334,9 +331,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// fmt.Println("appendEntries", rf.me, 2)
 		reply.Success = false
 		reply.Term = rf.currentTerm
-		if len(args.Entries) == 0 {
-			return
-		}
 
 		reply.ConflictLogIndex = args.PrevLogIndex
 		reply.ConflictLogTerm = rf.logTerm[reply.ConflictLogIndex]
@@ -609,12 +603,11 @@ func (rf *Raft) HandelAppend(server int, term int) {
 			return
 		}
 
-		rf.mu.Unlock()
 		// initial := args.PrevLogIndex
 		// initialEntry := args.Entries
 		// fmt.Println("not wait", rf.me, server)
-		rf.mu.Lock()
-		rf.nextIndex[server] = args.PrevLogIndex + 1
+		args.PrevLogIndex = rf.nextIndex[server] - 1
+		args.PrevLogTerm = rf.logTerm[args.PrevLogIndex]
 		rf.mu.Unlock()
 
 		for rf.killed() == false {
@@ -667,24 +660,31 @@ func (rf *Raft) HandelAppend(server int, term int) {
 				break
 			}
 
-			if len(args.Entries) == 0 {
-				// fmt.Println("handel heartbeats correctly")
-				if reply.Success == true {
-					rf.matchIndex[server] = max(rf.matchIndex[server], args.PrevLogIndex+len(args.Entries))
-					rf.nextIndex[server] = len(rf.log)
-				}
-				rf.mu.Unlock()
-				break
-			}
+			/*
+				if len(args.Entries) == 0 {
+					// fmt.Println("handel heartbeats correctly")
+					if reply.Success == true {
+						rf.matchIndex[server] = max(rf.matchIndex[server], args.PrevLogIndex+len(args.Entries))
+						rf.nextIndex[server] = rf.matchIndex[server] + 1
+					}
+					rf.mu.Unlock()
+					break
+				}*/
 
 			// fmt.Println("handel heartbeats correctly")
 
 			if reply.Success == true {
 				rf.matchIndex[server] = max(rf.matchIndex[server], args.PrevLogIndex+len(args.Entries))
-				rf.nextIndex[server] = len(rf.log)
-				go rf.checkCommit()
+				rf.nextIndex[server] = rf.matchIndex[server] + 1
+				if rf.matchIndex[server] > rf.commitIndex {
+					go rf.checkCommit()
+				}
 				rf.mu.Unlock()
 				break
+			}
+
+			if len(args.Entries) == 0 {
+				args.PrevLogIndex = rf.commitIndex
 			}
 
 			for i := args.PrevLogIndex; i > reply.ConflictLogIndex; i-- {
@@ -692,13 +692,14 @@ func (rf *Raft) HandelAppend(server int, term int) {
 				args.TermEntries = append(args.TermEntries, rf.logTerm[i])
 			}
 
-			args.PrevLogIndex = reply.ConflictLogIndex
+			args.PrevLogIndex = min(args.PrevLogIndex, reply.ConflictLogIndex)
 
 			for rf.logTerm[args.PrevLogIndex] > reply.ConflictLogTerm {
 				args.Entries = append(args.Entries, rf.log[args.PrevLogIndex])
 				args.TermEntries = append(args.TermEntries, rf.logTerm[args.PrevLogIndex])
 				args.PrevLogIndex--
 			}
+
 			args.PrevLogTerm = rf.logTerm[args.PrevLogIndex]
 			rf.nextIndex[server] = args.PrevLogIndex + 1
 
