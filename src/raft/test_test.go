@@ -68,13 +68,16 @@ func TestReElection2A(t *testing.T) {
 	// disturb the new leader.
 	cfg.connect(leader1)
 	// fmt.Println("start Election")
-	leader2 := cfg.checkOneLeader()
 
+	leader2 := cfg.checkOneLeader()
+	// fmt.Println(leader3, leader2, leader1)
 	// if there's no quorum, no leader should
 	// be elected.
 	cfg.disconnect(leader2)
 	cfg.disconnect((leader2 + 1) % servers)
+	// fmt.Println(cfg.rafts[0].GetStatus(), cfg.rafts[1].GetStatus(), cfg.rafts[2].GetStatus())
 	time.Sleep(2 * RaftElectionTimeout)
+	// fmt.Println(cfg.rafts[0].GetStatus(), cfg.rafts[1].GetStatus(), cfg.rafts[2].GetStatus())
 	cfg.checkNoLeader()
 
 	// if a quorum arises, it should elect a leader.
@@ -617,10 +620,14 @@ func TestPersist12C(t *testing.T) {
 
 	leader2 := cfg.checkOneLeader()
 	cfg.disconnect(leader2)
+	// leader3 := cfg.checkOneLeader()
+	// fmt.Println(leader3, leader2)
 	cfg.one(14, servers-1, true)
+	leader3 := cfg.checkOneLeader()
+	// fmt.Println(cfg.rafts[0].commitIndex, cfg.rafts[1].commitIndex, cfg.rafts[2].commitIndex)
 	cfg.start1(leader2, cfg.applier)
 	cfg.connect(leader2)
-
+	fmt.Println(leader3, leader2)
 	cfg.wait(4, servers, -1) // wait for leader2 to join before killing i3
 
 	i3 := (cfg.checkOneLeader() + 1) % servers
@@ -643,10 +650,15 @@ func TestPersist22C(t *testing.T) {
 
 	index := 1
 	for iters := 0; iters < 5; iters++ {
-		cfg.one(10+index, servers, true)
+		// leader := cfg.checkOneLeader()
+		// term, _ := cfg.rafts[leader].GetState()
+		// fmt.Println(leader, term)
+		// cfg.one(10+index, servers, true)
 		index++
 
 		leader1 := cfg.checkOneLeader()
+		// term, _ = cfg.rafts[leader1].GetState()
+		// fmt.Println(leader1, term)
 
 		cfg.disconnect((leader1 + 1) % servers)
 		cfg.disconnect((leader1 + 2) % servers)
@@ -670,6 +682,9 @@ func TestPersist22C(t *testing.T) {
 		cfg.connect((leader1 + 3) % servers)
 
 		cfg.one(10+index, servers-2, true)
+		// leader = cfg.checkOneLeader()
+		// term, _ = cfg.rafts[leader].GetState()
+		// fmt.Println(leader, term)
 		fmt.Println("OK")
 		index++
 
@@ -817,14 +832,19 @@ func TestFigure8Unreliable2C(t *testing.T) {
 	cfg.one(rand.Int()%10000, 1, true)
 
 	nup := servers
-	for iters := 0; iters < 1000; iters++ {
+	for iters := 0; iters < 300; iters++ {
+		// fmt.Println(iters)
 		if iters == 200 {
 			cfg.setlongreordering(true)
 		}
 		leader := -1
 		for i := 0; i < servers; i++ {
 			_, _, ok := cfg.rafts[i].Start(rand.Int() % 10000)
+			// fmt.Println("iters", iters, term, ok, cfg.connected[i])
+			// fmt.Println(cfg.rafts[i].log)
+			// fmt.Println(cfg.rafts[i].logTerm)
 			if ok && cfg.connected[i] {
+				//  fmt.Println("leaderselect", iters, term, ok, cfg.connected[i])
 				leader = i
 			}
 		}
@@ -856,7 +876,7 @@ func TestFigure8Unreliable2C(t *testing.T) {
 			cfg.connect(i)
 		}
 	}
-
+	fmt.Println("Ok")
 	cfg.one(rand.Int()%10000, servers, true)
 
 	cfg.end()

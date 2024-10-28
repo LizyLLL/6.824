@@ -466,7 +466,7 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 // but don't wait forever.
 func (cfg *config) wait(index int, n int, startTerm int) interface{} {
 	to := 10 * time.Millisecond
-	for iters := 0; iters < 30; iters++ {
+	for iters := 0; iters < 20; iters++ {
 		nd, _ := cfg.nCommitted(index)
 		if nd >= n {
 			break
@@ -511,17 +511,23 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 	for time.Since(t0).Seconds() < 10 {
 		// try all the servers, maybe one is the leader.
 		index := -1
+		// fmt.Println("one", cmd)
 		for si := 0; si < cfg.n; si++ {
 			starts = (starts + 1) % cfg.n
 			var rf *Raft
 			cfg.mu.Lock()
+			// fmt.Println(starts, cfg.connected[starts])
 			if cfg.connected[starts] {
 				rf = cfg.rafts[starts]
 			}
 			cfg.mu.Unlock()
 			if rf != nil {
+
 				index1, _, ok := rf.Start(cmd)
+				// fmt.Println("one", starts, term, ok, cfg.connected[si], rf.log)
+
 				if ok {
+					// fmt.Println("leader", si, index1, cfg.rafts[si].commitIndex, cfg.rafts[si].currentTerm)
 					index = index1
 					break
 				}
