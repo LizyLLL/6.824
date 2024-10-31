@@ -217,7 +217,10 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 				e := labgob.NewEncoder(w)
 				v := m.Command
 				e.Encode(v)
+				// fmt.Println("snapshot", m.Command, m.CommandIndex)
+				// cfg.rafts[i].mu.Unlock()
 				cfg.rafts[i].Snapshot(m.CommandIndex, w.Bytes())
+				// fmt.Println("return")
 			}
 		} else {
 			// Ignore other types of ApplyMsg or old
@@ -329,7 +332,7 @@ func (cfg *config) disconnect(i int) {
 	// fmt.Printf("disconnect(%d)\n", i)
 
 	cfg.connected[i] = false
-
+	// fmt.Println("disconnect", i)
 	// outgoing ClientEnds
 	for j := 0; j < cfg.n; j++ {
 		if cfg.endnames[i] != nil {
@@ -383,7 +386,7 @@ func (cfg *config) checkOneLeader() int {
 				term, leader := cfg.rafts[i].GetState()
 				// fmt.Println("not wait for leader", iters, i, cfg.connected[i])
 				if leader {
-
+					// fmt.Println("leader", i, term)
 					leaders[term] = append(leaders[term], i)
 				}
 			}
@@ -527,6 +530,7 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 				// fmt.Println("one", starts, term, ok, cfg.connected[si], rf.log)
 
 				if ok {
+					// fmt.Println("leader", si, index1)
 					// fmt.Println("leader", si, index1, cfg.rafts[si].commitIndex, cfg.rafts[si].currentTerm)
 					index = index1
 					break
@@ -540,6 +544,7 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				// fmt.Println("onecommit", nd, cmd1)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd1 == cmd {

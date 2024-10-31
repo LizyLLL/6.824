@@ -623,11 +623,11 @@ func TestPersist12C(t *testing.T) {
 	// leader3 := cfg.checkOneLeader()
 	// fmt.Println(leader3, leader2)
 	cfg.one(14, servers-1, true)
-	leader3 := cfg.checkOneLeader()
+	// leader3 := cfg.checkOneLeader()
 	// fmt.Println(cfg.rafts[0].commitIndex, cfg.rafts[1].commitIndex, cfg.rafts[2].commitIndex)
 	cfg.start1(leader2, cfg.applier)
 	cfg.connect(leader2)
-	fmt.Println(leader3, leader2)
+	// fmt.Println(leader3, leader2)
 	cfg.wait(4, servers, -1) // wait for leader2 to join before killing i3
 
 	i3 := (cfg.checkOneLeader() + 1) % servers
@@ -685,7 +685,7 @@ func TestPersist22C(t *testing.T) {
 		// leader = cfg.checkOneLeader()
 		// term, _ = cfg.rafts[leader].GetState()
 		// fmt.Println(leader, term)
-		fmt.Println("OK")
+		// fmt.Println("OK")
 		index++
 
 		cfg.connect((leader1 + 4) % servers)
@@ -876,7 +876,7 @@ func TestFigure8Unreliable2C(t *testing.T) {
 			cfg.connect(i)
 		}
 	}
-	fmt.Println("Ok")
+	// fmt.Println("Ok")
 	cfg.one(rand.Int()%10000, servers, true)
 
 	cfg.end()
@@ -1051,6 +1051,7 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 	for i := 0; i < iters; i++ {
 		victim := (leader1 + 1) % servers
 		sender := leader1
+		// fmt.Println(i)
 		if i%3 == 1 {
 			sender = (leader1 + 1) % servers
 			victim = leader1
@@ -1058,19 +1059,27 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 
 		if disconnect {
 			cfg.disconnect(victim)
+
+			// leader := cfg.checkOneLeader()
+			// fmt.Println("check the same leader", leader, sender)
 			cfg.one(rand.Int(), servers-1, true)
 		}
 		if crash {
 			cfg.crash1(victim)
 			cfg.one(rand.Int(), servers-1, true)
 		}
+
 		// send enough to get a snapshot
 		for i := 0; i < SnapShotInterval+1; i++ {
 			cfg.rafts[sender].Start(rand.Int())
 		}
-		// let applier threads catch up with the Start()'s
-		cfg.one(rand.Int(), servers-1, true)
 
+		// time.Sleep(RaftElectionTimeout)
+
+		// let applier threads catch up with the Start()'s
+
+		cfg.one(rand.Int(), servers-1, true)
+		// fmt.Println("reach one disconnect", i)
 		if cfg.LogSize() >= MAXLOGSIZE {
 			cfg.t.Fatalf("Log size too large")
 		}
@@ -1078,7 +1087,9 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			// reconnect a follower, who maybe behind and
 			// needs to rceive a snapshot to catch up.
 			cfg.connect(victim)
+			// fmt.Println("alreay connect")
 			cfg.one(rand.Int(), servers, true)
+			// fmt.Println("reach one connect", i)
 			leader1 = cfg.checkOneLeader()
 		}
 		if crash {
