@@ -20,6 +20,8 @@ package raft
 import (
 	"6.824/labgob"
 	"bytes"
+	"fmt"
+
 	//  "fmt"
 
 	"log"
@@ -56,6 +58,7 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+	CommandTerm  int
 
 	// For 2D:
 	SnapshotValid bool
@@ -807,6 +810,7 @@ func (rf *Raft) checkApply() {
 			}
 			applyMsg.Command = rf.log[rf.lastApplied+1-rf.logIndex[0]]
 			applyMsg.CommandIndex = rf.lastApplied + 1
+			applyMsg.CommandTerm = rf.logTerm[applyMsg.CommandIndex-rf.logIndex[0]]
 			rf.lastApplied++
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
@@ -1205,7 +1209,8 @@ func (rf *Raft) HandelVote(server int, args *RequestVoteArgs) {
 
 		if rf.countVote > len(rf.peers)/2 {
 
-			// fmt.Println("Candidate Success", rf.me, rf.currentTerm)
+			fmt.Println("Candidate Success", rf.me, rf.currentTerm)
+
 			rf.status = Leader
 			// rf.votedFor = -1
 			// rf.appendCount = 0
@@ -1309,7 +1314,7 @@ func (rf *Raft) ticker() {
 			lastLogIndex := rf.logIndex[len(rf.log)-1]
 			lastLogTerm := rf.logTerm[len(rf.log)-1]
 			// fmt.Println("vote usage", rf.me, lastLogIndex, lastLogTerm)
-			// fmt.Println("electiontimeout", rf.me, rf.currentTerm)
+			fmt.Println("electiontimeout", rf.me, rf.currentTerm)
 			args := RequestVoteArgs{term, candidateId, lastLogIndex, lastLogTerm}
 			for i := 0; i < len(rf.peers); i++ {
 				if i == rf.me {

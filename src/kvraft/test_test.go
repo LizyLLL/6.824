@@ -1,6 +1,8 @@
 package kvraft
 
-import "6.824/porcupine"
+import (
+	"6.824/porcupine"
+)
 import "6.824/models"
 import "testing"
 import "strconv"
@@ -308,8 +310,11 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			// won't return until that server discovers a new term
 			// has started.
 			cfg.ConnectAll()
+			// log.Fatalf("connnectAll")
+
 			// wait for a while so that we have a new term
 			time.Sleep(electionTimeout)
+			// fmt.Println("connectALL")
 		}
 
 		if crash {
