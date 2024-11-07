@@ -2,7 +2,6 @@ package kvraft
 
 import (
 	"6.824/labrpc"
-	"fmt"
 	"time"
 )
 import "crypto/rand"
@@ -104,7 +103,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	reply := PutAppendReply{}
 	var err Err
 
-	fmt.Println("clientputAppend", key, value, op)
+	// fmt.Println("clientputAppend", key, value, op)
 
 	// ck.mu.Lock()
 	ck.commandId += 1

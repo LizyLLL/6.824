@@ -5,7 +5,6 @@ import (
 	"6.824/labrpc"
 	"6.824/raft"
 	"bytes"
-	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -108,7 +107,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 
 	var state StateMessage
 	// kv.mu.Lock()
-	idleDuration := time.After(2 * time.Second)
+	idleDuration := time.After(10 * time.Second)
 	for kv.killed() == false {
 
 		select {
@@ -163,7 +162,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	op.Value = args.Value
 	op.Ch = make(chan StateMessage, 100)
 
-	fmt.Println("putAppend", args.ClientId, args.Identifier, kv.me)
+	// fmt.Println("putAppend", args.ClientId, args.Identifier, kv.me)
 	if args.Op == "Put" {
 		op.Name = put
 	} else {
@@ -179,7 +178,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 
 	var state StateMessage
-	idleDuration := time.After(2 * time.Second)
+	idleDuration := time.After(10 * time.Second)
 	// kv.mu.Lock()
 	for kv.killed() == false {
 		select {
@@ -245,6 +244,7 @@ func (kv *KVServer) killed() bool {
 func (kv *KVServer) applier() {
 	for m := range kv.applyCh {
 		kv.mu.Lock()
+		// fmt.Println("trim", m.CommandIndex, kv.maxraftstate)
 		if m.SnapshotValid {
 			if kv.rf.CondInstallSnapshot(m.SnapshotTerm, m.SnapshotIndex, m.Snapshot) {
 				var session map[int64]int
@@ -262,7 +262,7 @@ func (kv *KVServer) applier() {
 		} else if m.CommandValid {
 			op := m.Command.(Op)
 			args := StateMessage{}
-			fmt.Println("command", op.ClientID, op.Identifier)
+			// fmt.Println("command", op.ClientID, op.Identifier)
 			switch op.Name {
 			case get:
 				args.Term = m.CommandTerm
@@ -284,7 +284,7 @@ func (kv *KVServer) applier() {
 				case op.Ch <- args:
 					// fmt.Println("success send", op.ClientID, op.Identifier)
 					// 成功发送数据
-				case <-time.After(1 * time.Second): // 设置一个超时，防止死锁
+				case <-time.After(10 * time.Millisecond): // 设置一个超时，防止死锁
 					// 如果超时，说明 channel 无法接收数据
 
 					// log.Println("Channel is not available or too slow")
@@ -312,9 +312,10 @@ func (kv *KVServer) applier() {
 				select {
 				case op.Ch <- args:
 					// 成功发送数据
-				case <-time.After(1 * time.Second): // 设置一个超时，防止死锁
+				case <-time.After(10 * time.Millisecond): // 设置一个超时，防止死锁
 					// 如果超时，说明 channel 无法接收数据
-					log.Println("Channel is not available or too slow")
+
+					// log.Println("Channel is not available or too slow")
 
 					// return
 				}
@@ -343,7 +344,7 @@ func (kv *KVServer) applier() {
 				select {
 				case op.Ch <- args:
 					// 成功发送数据
-				case <-time.After(1 * time.Second): // 设置一个超时，防止死锁
+				case <-time.After(10 * time.Millisecond): // 设置一个超时，防止死锁
 					// 如果超时，说明 channel 无法接收数据
 					// log.Println("Channel is not available or too slow")
 				}
@@ -351,7 +352,8 @@ func (kv *KVServer) applier() {
 				kv.appliedIndex = m.CommandIndex
 			}
 
-			if kv.maxraftstate != -1 && (m.CommandIndex+1)%kv.maxraftstate == 0 {
+			if kv.maxraftstate != -1 && (m.CommandIndex+1)%100 == 0 {
+
 				w := new(bytes.Buffer)
 				e := labgob.NewEncoder(w)
 				e.Encode(kv.session)
