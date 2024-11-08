@@ -20,8 +20,6 @@ package raft
 import (
 	"6.824/labgob"
 	"bytes"
-	"fmt"
-
 	//  "fmt"
 
 	"log"
@@ -167,6 +165,7 @@ func (rf *Raft) persist() {
 	// rf.persister.SaveRaftState(data)
 	bf := new(bytes.Buffer)
 	e := labgob.NewEncoder(bf)
+	// log.Printf("logSize:%v %v", len(rf.logIndex), rf.lastApplied-rf.logIndex[0])
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
@@ -290,29 +289,41 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 	if lastIncludedIndex <= rf.logIndex[0] {
 		return false
 	}
-
+	// log.Println()
 	rf.lastIncludedIndex = lastIncludedIndex
 	rf.lastIncludedTerm = lastIncludedTerm
 	rf.commitIndex = lastIncludedIndex
 	rf.lastApplied = lastIncludedIndex
 
+	var tempLog []interface{} = make([]interface{}, 0)
+	var tempLogIndex []int = make([]int, 0)
+	var tempLogTerm []int = make([]int, 0)
+
 	if lastIncludedIndex >= rf.logIndex[0]+len(rf.log) {
+		// log.Println("all throw")
 		rf.logIndex[0] = lastIncludedIndex
 		rf.logTerm[0] = lastIncludedTerm
 		rf.log[0] = nil
 		rf.logTerm = rf.logTerm[0:1]
 		rf.logIndex = rf.logIndex[0:1]
 		rf.log = rf.log[0:1]
+		rf.log = append(tempLog, rf.log...)
+		rf.logTerm = append(tempLogTerm, rf.logTerm...)
+		rf.logIndex = append(tempLogIndex, rf.logIndex...)
 
 	} else {
+		// log.Println("truncate")
 		rf.logTerm = rf.logTerm[lastIncludedIndex-rf.logIndex[0]:]
 		rf.log = rf.log[lastIncludedIndex-rf.logIndex[0]:]
 		rf.logIndex = rf.logIndex[lastIncludedIndex-rf.logIndex[0]:]
 		rf.logTerm[0] = lastIncludedTerm
 		rf.logIndex[0] = lastIncludedIndex
 		rf.log[0] = nil
+		rf.log = append(tempLog, rf.log...)
+		rf.logTerm = append(tempLogTerm, rf.logTerm...)
+		rf.logIndex = append(tempLogIndex, rf.logIndex...)
 	}
-
+	// log.Println("installSnapShot", len(rf.log))
 	state, snapShot := rf.persistStateAndSnapshot(snapshot)
 	rf.persister.SaveStateAndSnapshot(state, snapShot)
 
@@ -336,10 +347,18 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 	// index must exist because it already applied
 	// trim the log
+	var tempLog []interface{} = make([]interface{}, 0)
+	var tempLogIndex []int = make([]int, 0)
+	var tempLogTerm []int = make([]int, 0)
 
 	rf.logTerm = rf.logTerm[index-rf.logIndex[0]:]
 	rf.log = rf.log[index-rf.logIndex[0]:]
 	rf.logIndex = rf.logIndex[index-rf.logIndex[0]:]
+
+	rf.log = append(tempLog, rf.log...)
+	rf.logTerm = append(tempLogTerm, rf.logTerm...)
+	rf.logIndex = append(tempLogIndex, rf.logIndex...)
+
 	rf.lastIncludedTerm = rf.logTerm[0]
 	rf.lastIncludedIndex = rf.logIndex[0]
 
@@ -530,13 +549,20 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		j++
 	}
 	if truncate {
+		var tempLog []interface{} = make([]interface{}, 0)
+		var tempLogIndex []int = make([]int, 0)
+		var tempLogTerm []int = make([]int, 0)
 		rf.log = rf.log[0 : args.PrevLogIndex+j-rf.logIndex[0]]
 		rf.logTerm = rf.logTerm[0 : args.PrevLogIndex+j-rf.logIndex[0]]
 		rf.logIndex = rf.logIndex[0 : args.PrevLogIndex+j-rf.logIndex[0]]
+		rf.log = append(tempLog, rf.log...)
+		rf.logTerm = append(tempLogTerm, rf.logTerm...)
+		rf.logIndex = append(tempLogIndex, rf.logIndex...)
 	}
+	// log.Println("startSize", len(rf.log), size, rf.lastApplied-rf.logIndex[0], rf.commitIndex-rf.logIndex[0])
 	// fmt.Println("compare", args.PrevLogIndex, args.LeaderCommit, rf.commitIndex, rf.lastApplied, rf.logIndex[0])
-	rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1+rf.logIndex[0])
 
+	rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1+rf.logIndex[0])
 	rf.persist()
 	return
 
@@ -669,9 +695,9 @@ func (rf *Raft) InstallSnapShot(args *InstallSnapShotArgs, reply *InstallSnapSho
 	// fmt.Println("install snapshot")
 	rf.mu.Unlock()
 	rf.applyCh <- applyMsg
+
 }
 
-//
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
 // expects RPC arguments in args.
@@ -699,7 +725,6 @@ func (rf *Raft) InstallSnapShot(args *InstallSnapShotArgs, reply *InstallSnapSho
 // capitalized all field names in structs passed over RPC, and
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
-//
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
@@ -749,6 +774,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		// fmt.Println("start", command)
 		rf.logTerm = append(rf.logTerm, term)
 		rf.logIndex = append(rf.logIndex, index)
+		// log.Println("startSize", len(rf.log))
 		// rf.matchIndex[rf.me] = index
 		args := AppendEntriesArgs{Term: rf.currentTerm, LeaderId: rf.me, LeaderCommit: rf.commitIndex}
 		args.PrevLogIndex = index - 1
@@ -801,6 +827,7 @@ func (rf *Raft) checkApply() {
 		rf.mu.Lock()
 		// fmt.Println("apply", rf.me, rf.lastApplied, rf.commitIndex, len(rf.log))
 		for rf.lastApplied < rf.commitIndex {
+			// log.Println("checkApply", rf.status, rf.me, rf.lastApplied, rf.commitIndex)
 			if rf.killed() == true {
 				return
 			}
@@ -818,11 +845,10 @@ func (rf *Raft) checkApply() {
 		}
 		rf.mu.Unlock()
 
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-//
 // the tester doesn't halt goroutines created by Raft after each test,
 // but it does call the Kill() method. your code can use killed() to
 // check whether Kill() has been called. the use of atomic avoids the
@@ -832,7 +858,6 @@ func (rf *Raft) checkApply() {
 // up CPU time, perhaps causing later tests to fail and generating
 // confusing debug output. any goroutine with a long-running loop
 // should call killed() to check whether it should stop.
-//
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
@@ -1209,7 +1234,7 @@ func (rf *Raft) HandelVote(server int, args *RequestVoteArgs) {
 
 		if rf.countVote > len(rf.peers)/2 {
 
-			fmt.Println("Candidate Success", rf.me, rf.currentTerm)
+			// fmt.Println("Candidate Success", rf.me, rf.currentTerm)
 
 			rf.status = Leader
 			// rf.votedFor = -1
@@ -1314,7 +1339,7 @@ func (rf *Raft) ticker() {
 			lastLogIndex := rf.logIndex[len(rf.log)-1]
 			lastLogTerm := rf.logTerm[len(rf.log)-1]
 			// fmt.Println("vote usage", rf.me, lastLogIndex, lastLogTerm)
-			fmt.Println("electiontimeout", rf.me, rf.currentTerm)
+			// fmt.Println("electiontimeout", rf.me, rf.currentTerm)
 			args := RequestVoteArgs{term, candidateId, lastLogIndex, lastLogTerm}
 			for i := 0; i < len(rf.peers); i++ {
 				if i == rf.me {
@@ -1331,7 +1356,6 @@ func (rf *Raft) ticker() {
 	}
 }
 
-//
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
@@ -1341,7 +1365,6 @@ func (rf *Raft) ticker() {
 // tester or service expects Raft to send ApplyMsg messages.
 // Make() must return quickly, so it should start goroutines
 // for any long-running work.
-//
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}

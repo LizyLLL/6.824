@@ -92,7 +92,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	op.Identifier = args.Identifier
 	op.Key = args.Key
 	op.Name = get
-	op.Ch = make(chan StateMessage, 100)
+	op.Ch = make(chan StateMessage, 10)
 
 	reply.Err = ErrTimeOut
 
@@ -129,6 +129,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 			if state.Index == index && state.Term != term {
 				log.Fatalf("state.Term != term")
 			}
+			// log.Println("get success", kv.me, op.ClientID, op.Identifier)
 			reply.Value = state.Value
 			reply.Err = state.Err
 			return
@@ -160,7 +161,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	op.Identifier = args.Identifier
 	op.Key = args.Key
 	op.Value = args.Value
-	op.Ch = make(chan StateMessage, 100)
+	op.Ch = make(chan StateMessage, 10)
 
 	// fmt.Println("putAppend", args.ClientId, args.Identifier, kv.me)
 	if args.Op == "Put" {
@@ -191,6 +192,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		select {
 		case state = <-op.Ch:
 			// kv.mu.Unlock()
+			// log.Println("key add success", kv.me, op.ClientID, op.Identifier)
 			if state.Index < index {
 				log.Fatalf("state.Index < index")
 			}
@@ -214,7 +216,6 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 }
 
-//
 // the tester calls Kill() when a KVServer instance won't
 // be needed again. for your convenience, we supply
 // code to set rf.dead (without needing a lock),
@@ -223,7 +224,6 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 // code to Kill(). you're not required to do anything
 // about this, but it may be convenient (for example)
 // to suppress debug output from a Kill()ed instance.
-//
 func (kv *KVServer) Kill() {
 	atomic.StoreInt32(&kv.dead, 1)
 	kv.rf.Kill()
@@ -246,7 +246,9 @@ func (kv *KVServer) applier() {
 		kv.mu.Lock()
 		// fmt.Println("trim", m.CommandIndex, kv.maxraftstate)
 		if m.SnapshotValid {
+			log.Printf("installSnapshot to %v, now I am %v", m.SnapshotIndex, kv.appliedIndex)
 			if kv.rf.CondInstallSnapshot(m.SnapshotTerm, m.SnapshotIndex, m.Snapshot) {
+
 				var session map[int64]int
 				var kvMemory map[string]string
 				r := bytes.NewBuffer(m.Snapshot)
@@ -257,12 +259,14 @@ func (kv *KVServer) applier() {
 					kv.session = session
 					kv.kvMemory = kvMemory
 				}
+				kv.appliedIndex = m.SnapshotIndex
 
 			}
-		} else if m.CommandValid {
+		} else if m.CommandValid && m.CommandIndex > kv.appliedIndex {
 			op := m.Command.(Op)
 			args := StateMessage{}
 			// fmt.Println("command", op.ClientID, op.Identifier)
+			// log.Printf("applyMsg serverID: %v clientID: %v identifier: %v, index: %v term: %v", kv.me, op.ClientID, op.Identifier, m.CommandIndex, m.CommandTerm)
 			switch op.Name {
 			case get:
 				args.Term = m.CommandTerm
@@ -275,7 +279,7 @@ func (kv *KVServer) applier() {
 					args.Value = value
 				}
 				if op.Identifier < kv.session[op.ClientID] {
-					log.Fatalf("assumption wrong in get")
+					// log.Fatalf("assumption wrong in get %v %v %v num: %v Index: %v Term: %v", op.Identifier, kv.session[op.ClientID], op.ClientID, kv.me, m.CommandIndex, m.CommandTerm)
 				}
 
 				kv.session[op.ClientID] = op.Identifier
@@ -284,18 +288,14 @@ func (kv *KVServer) applier() {
 				case op.Ch <- args:
 					// fmt.Println("success send", op.ClientID, op.Identifier)
 					// 成功发送数据
-				case <-time.After(10 * time.Millisecond): // 设置一个超时，防止死锁
-					// 如果超时，说明 channel 无法接收数据
-
-					// log.Println("Channel is not available or too slow")
-					// fmt.Println("insuccess", op.ClientID, op.Identifier)
+				default:
 				}
 				kv.mu.Lock()
 				kv.appliedIndex = m.CommandIndex
 
 			case put:
 				if op.Identifier < kv.session[op.ClientID] {
-					log.Fatalf("assumption wrong in put")
+					// log.Fatalf("assumption wrong in put %v %v %v num: %v Index: %v Term: %v", op.Identifier, kv.session[op.ClientID], op.ClientID, kv.me, m.CommandIndex, m.CommandTerm)
 				}
 				// fmt.Println("put", op.Key, op.Value)
 				args.Term = m.CommandTerm
@@ -308,22 +308,19 @@ func (kv *KVServer) applier() {
 					args.Err = OK
 				}
 				kv.session[op.ClientID] = op.Identifier
+
 				kv.mu.Unlock()
 				select {
 				case op.Ch <- args:
 					// 成功发送数据
-				case <-time.After(10 * time.Millisecond): // 设置一个超时，防止死锁
-					// 如果超时，说明 channel 无法接收数据
-
-					// log.Println("Channel is not available or too slow")
-
-					// return
+				default:
 				}
 				kv.mu.Lock()
 				kv.appliedIndex = m.CommandIndex
 			case app:
 				if op.Identifier < kv.session[op.ClientID] {
-					log.Fatalf("assumption wrong in put")
+
+					// log.Fatalf("assumption wrong in append %v %v %v num: %v Index: %v Term: %v", op.Identifier, kv.session[op.ClientID], op.ClientID, kv.me, m.CommandIndex, m.CommandTerm)
 				}
 				args.Term = m.CommandTerm
 				args.Index = m.CommandIndex
@@ -344,9 +341,7 @@ func (kv *KVServer) applier() {
 				select {
 				case op.Ch <- args:
 					// 成功发送数据
-				case <-time.After(10 * time.Millisecond): // 设置一个超时，防止死锁
-					// 如果超时，说明 channel 无法接收数据
-					// log.Println("Channel is not available or too slow")
+				default:
 				}
 				kv.mu.Lock()
 				kv.appliedIndex = m.CommandIndex
@@ -356,19 +351,50 @@ func (kv *KVServer) applier() {
 
 				w := new(bytes.Buffer)
 				e := labgob.NewEncoder(w)
+				// log.Println(kv.me, "'s snapshot", kv.kvMemory, kv.session)
 				e.Encode(kv.session)
 				e.Encode(kv.kvMemory)
 				kv.rf.Snapshot(m.CommandIndex, w.Bytes())
 			}
 
 		} else {
-			log.Fatalf("unknown situation")
+			// log.Fatalf("unknown situation")
+			// rf.lastApplied renew during
 		}
 		kv.mu.Unlock()
 	}
 }
 
-//
+func (kv *KVServer) ReadSnapShot(persister *raft.Persister) {
+	snapshot := persister.ReadSnapshot()
+	if len(snapshot) == 0 {
+		return
+	}
+	r := bytes.NewBuffer(snapshot)
+	d := labgob.NewDecoder(r)
+	var lastIncludedIndex int
+	var lastIncludedTerm int
+	var snapShot []byte
+
+	if d.Decode(&lastIncludedIndex) != nil || d.Decode(&lastIncludedTerm) != nil ||
+		d.Decode(&snapShot) != nil {
+		log.Fatal("decode error1")
+	}
+	r = bytes.NewBuffer(snapShot)
+	d = labgob.NewDecoder(r)
+
+	var session map[int64]int
+	var kvMemory map[string]string
+
+	if d.Decode(&session) != nil || d.Decode(&kvMemory) != nil {
+		log.Fatal("decode error2")
+	} else {
+		kv.session = session
+		kv.kvMemory = kvMemory
+	}
+
+}
+
 // servers[] contains the ports of the set of
 // servers that will cooperate via Raft to
 // form the fault-tolerant key/value service.
@@ -381,7 +407,6 @@ func (kv *KVServer) applier() {
 // you don't need to snapshot.
 // StartKVServer() must return quickly, so it should start goroutines
 // for any long-running work.
-//
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
 	// call labgob.Register on structures you want
 	// Go's RPC library to marshall/unmarshall.
@@ -399,7 +424,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	// You may need initialization code here.
 	kv.kvMemory = make(map[string]string)
 	kv.session = make(map[int64]int)
-
+	kv.ReadSnapShot(persister)
 	go kv.applier()
 	return kv
 }

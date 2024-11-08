@@ -2,6 +2,8 @@ package kvraft
 
 import (
 	"6.824/porcupine"
+	"log"
+	"os"
 )
 import "6.824/models"
 import "testing"
@@ -590,12 +592,10 @@ func TestPersistPartitionUnreliableLinearizable3A(t *testing.T) {
 	GenericTest(t, "3A", 15, 7, true, true, true, -1, true)
 }
 
-//
 // if one server falls behind, then rejoins, does it
 // recover by using the InstallSnapshot RPC?
 // also checks that majority discards committed log entries
 // even if minority doesn't respond.
-//
 func TestSnapshotRPC3B(t *testing.T) {
 	const nservers = 3
 	maxraftstate := 1000
@@ -702,6 +702,11 @@ func TestSnapshotRecoverManyClients3B(t *testing.T) {
 
 func TestSnapshotUnreliable3B(t *testing.T) {
 	// Test: unreliable net, snapshots, many clients (3B) ...
+	f, err := os.OpenFile("log.log", os.O_CREATE|os.O_APPEND|os.O_RDWR, os.ModePerm)
+	if err != nil {
+		return
+	}
+	log.SetOutput(f)
 	GenericTest(t, "3B", 5, 5, true, false, false, 1000, false)
 }
 
