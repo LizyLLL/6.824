@@ -223,7 +223,7 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 				// fmt.Println("return")
 			}
 		} else {
-			log.Fatalf("logical error")
+			// log.Fatalf("logical error")
 			// Ignore other types of ApplyMsg or old
 			// commands. Old command may never happen,
 			// depending on the Raft implementation, but
@@ -234,13 +234,11 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 	}
 }
 
-//
 // start or re-start a Raft.
 // if one already exists, "kill" it first.
 // allocate new outgoing port file names, and a new
 // state persister, to isolate previous instance of
 // this server. since we cannot really kill it.
-//
 func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 	cfg.crash1(i)
 

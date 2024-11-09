@@ -108,8 +108,8 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	var state StateMessage
 	// kv.mu.Lock()
 	idleDuration := time.After(10 * time.Second)
+	checkDuration := time.After(1 * time.Second)
 	for kv.killed() == false {
-
 		select {
 		case <-idleDuration:
 			reply.Err = ErrTimeOut
@@ -133,9 +133,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 			reply.Value = state.Value
 			reply.Err = state.Err
 			return
-		case <-time.After(100 * time.Millisecond):
-			// kv.mu.Unlock()
-			// fmt.Println("timeout in get")
+		case <-checkDuration:
 			kv.mu.Lock()
 			if kv.appliedIndex > index {
 				reply.Err = ErrWrongLeader
@@ -144,6 +142,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 			}
 			kv.mu.Unlock()
 		}
+
 	}
 }
 
@@ -163,7 +162,6 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	op.Value = args.Value
 	op.Ch = make(chan StateMessage, 10)
 
-	// fmt.Println("putAppend", args.ClientId, args.Identifier, kv.me)
 	if args.Op == "Put" {
 		op.Name = put
 	} else {
@@ -171,6 +169,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 	kv.mu.Lock()
 	index, term, success := kv.rf.Start(op)
+	// log.Printf("putAppendinServer serverId:%v, index: %v", kv.me, index)
 	kv.mu.Unlock()
 	if !success {
 		// fmt.Println("!success")
@@ -180,6 +179,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 
 	var state StateMessage
 	idleDuration := time.After(10 * time.Second)
+	checkDuration := time.After(1 * time.Second)
 	// kv.mu.Lock()
 	for kv.killed() == false {
 		select {
@@ -204,7 +204,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 			}
 			reply.Err = state.Err
 			return
-		case <-time.After(100 * time.Millisecond):
+		case <-checkDuration:
 			kv.mu.Lock()
 			if kv.appliedIndex > index {
 				reply.Err = ErrWrongLeader
@@ -246,7 +246,7 @@ func (kv *KVServer) applier() {
 		kv.mu.Lock()
 		// fmt.Println("trim", m.CommandIndex, kv.maxraftstate)
 		if m.SnapshotValid {
-			log.Printf("installSnapshot to %v, now I am %v", m.SnapshotIndex, kv.appliedIndex)
+			// log.Printf("installSnapshot to %v, now I am %v", m.SnapshotIndex, kv.appliedIndex)
 			if kv.rf.CondInstallSnapshot(m.SnapshotTerm, m.SnapshotIndex, m.Snapshot) {
 
 				var session map[int64]int
@@ -372,16 +372,6 @@ func (kv *KVServer) ReadSnapShot(persister *raft.Persister) {
 	}
 	r := bytes.NewBuffer(snapshot)
 	d := labgob.NewDecoder(r)
-	var lastIncludedIndex int
-	var lastIncludedTerm int
-	var snapShot []byte
-
-	if d.Decode(&lastIncludedIndex) != nil || d.Decode(&lastIncludedTerm) != nil ||
-		d.Decode(&snapShot) != nil {
-		log.Fatal("decode error1")
-	}
-	r = bytes.NewBuffer(snapShot)
-	d = labgob.NewDecoder(r)
 
 	var session map[int64]int
 	var kvMemory map[string]string

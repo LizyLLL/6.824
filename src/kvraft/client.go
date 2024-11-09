@@ -62,6 +62,7 @@ func (ck *Clerk) Get(key string) string {
 	var ret string
 	ret = ""
 	for {
+		// log.Printf("Get ClientId: %v, Identifier: %v, serverId: %v", args.ClientId, args.Identifier, i)
 		ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
 		// ck.mu.Lock()
 		if !ok {
@@ -112,7 +113,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// ck.mu.Unlock()
 
 	for {
-		// log.Println("putAppend", args.ClientId, args.Identifier, i)
+		// log.Printf("putAppend ClientId: %v, Identifier: %v, serverId: %v", args.ClientId, args.Identifier, i)
 		ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
 		// ck.mu.Lock()
 		if !ok {

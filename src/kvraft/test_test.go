@@ -2,7 +2,10 @@ package kvraft
 
 import (
 	"6.824/porcupine"
+	"io"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 )
 import "6.824/models"
@@ -696,6 +699,12 @@ func TestSnapshotRecover3B(t *testing.T) {
 }
 
 func TestSnapshotRecoverManyClients3B(t *testing.T) {
+	go func() {
+		// http 监听8080, 开启 pprof
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Println("listen failed")
+		}
+	}()
 	// Test: restarts, snapshots, many clients (3B) ...
 	GenericTest(t, "3B", 20, 5, false, true, false, 1000, false)
 }
@@ -703,6 +712,14 @@ func TestSnapshotRecoverManyClients3B(t *testing.T) {
 func TestSnapshotUnreliable3B(t *testing.T) {
 	// Test: unreliable net, snapshots, many clients (3B) ...
 	f, err := os.OpenFile("log.log", os.O_CREATE|os.O_APPEND|os.O_RDWR, os.ModePerm)
+	_, err = io.WriteString(f, "")
+	go func() {
+		// http 监听8080, 开启 pprof
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Println("listen failed")
+		}
+	}()
+
 	if err != nil {
 		return
 	}
